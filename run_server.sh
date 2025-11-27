@@ -1,5 +1,7 @@
 set -e
-set -x 
+set -x
+unset TORCHINDUCTOR_MAX_AUTOTUNE
+unset TORCHINDUCTOR_MAX_AUTOTUNE_POINTWISE
 export MODEL="/data/DeepSeek-R1-0528"
 export MODEL="/data/DeepSeek-V3.2-Exp"
 export PORT=30000
@@ -9,8 +11,8 @@ ps aux | grep sglang |awk '{print $2}' | xargs kill -9
 set -e
 sleep 1
 
-export SGLANG_NSA_FUSE_TOPK=false 
-export SGLANG_NSA_KV_CACHE_STORE_FP8=false export SGLANG_NSA_USE_REAL_INDEXER=true 
+export SGLANG_NSA_FUSE_TOPK=false
+export SGLANG_NSA_KV_CACHE_STORE_FP8=false export SGLANG_NSA_USE_REAL_INDEXER=true
 export SGLANG_NSA_USE_TILELANG_PREFILL=True
 
 python3 -m sglang.launch_server \
@@ -23,4 +25,3 @@ python3 -m sglang.launch_server \
 	--max-prefill-tokens=196608 \
 	--nsa-decode "tilelang" --load-format dummy\
 	--disable-radix-cache 2>&1 |tee a.log
-
