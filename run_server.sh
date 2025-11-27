@@ -12,9 +12,10 @@ set -e
 sleep 1
 
 export SGLANG_NSA_FUSE_TOPK=false
-export SGLANG_NSA_KV_CACHE_STORE_FP8=false export SGLANG_NSA_USE_REAL_INDEXER=true
-export SGLANG_NSA_USE_TILELANG_PREFILL=True
-
+export SGLANG_NSA_KV_CACHE_STORE_FP8=false
+export SGLANG_NSA_USE_REAL_INDEXER=true
+# export SGLANG_NSA_USE_TILELANG_PREFILL=True
+# --nsa-decode "tilelang"
 python3 -m sglang.launch_server \
 	--model-path=$MODEL --host=0.0.0.0 --port=$PORT --trust-remote-code \
 	--tensor-parallel-size=$TP \
@@ -23,5 +24,5 @@ python3 -m sglang.launch_server \
 	--chunked-prefill-size=196608 \
 	--num-continuous-decode-steps=4 \
 	--max-prefill-tokens=196608 \
-	--nsa-decode "tilelang" --load-format dummy\
+	--load-format dummy\
 	--disable-radix-cache 2>&1 |tee a.log
