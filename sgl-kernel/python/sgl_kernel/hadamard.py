@@ -1,8 +1,9 @@
+import fast_hadamard_transform
 import torch
 
 
 def hadamard_transform(x: torch.Tensor, scale: float = 1.0) -> torch.Tensor:
-    return torch.ops.sgl_kernel.fast_hadamard_transform.default(x, scale)
+    return fast_hadamard_transform.hadamard_transform(x, scale)
 
 
 def hadamard_transform_12n(x: torch.Tensor, scale: float = 1.0) -> torch.Tensor:
