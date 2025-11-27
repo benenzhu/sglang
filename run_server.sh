@@ -1,5 +1,6 @@
 set -e
 set -x 
+cp sgl-kernel/python/sgl_kernel/hadamard.py /opt/venv/lib/python3.10/site-packages/sgl_kernel-0.3.18-py3.10-linux-x86_64.egg/sgl_kernel/hadamard.py
 export MODEL="/data/DeepSeek-R1-0528"
 export MODEL="/data/DeepSeek-V3.2-Exp"
 export PORT=30000
