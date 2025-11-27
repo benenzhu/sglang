@@ -191,6 +191,11 @@ def fp8_index(
         fp32 logits_sum * k_s (e8m0) -> fp32 index_score
     """
     if _is_hip:
+        print(
+            __file__,
+            f"{q.shape}, {q_s.shape}, {k.shape}, {k_s.shape}, {q.dtype}, {q_s.dtype}, {k.dtype}, {k_s.dtype} {q.stride()}, {q_s.stride()}, {k.stride()}, {k_s.stride()}",
+            flush=True,
+        )
         return fp8_index_kernel(q.shape[2], q.shape[3], False)(q, q_s, k, k_s)
     else:
         return fp8_index_kernel(q.shape[2], q.shape[3])(q, q_s, k, k_s)
