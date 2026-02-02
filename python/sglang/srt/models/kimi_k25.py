@@ -740,5 +740,15 @@ class KimiK25ForConditionalGeneration(nn.Module):
         if language_weights:
             self.language_model.load_weights(language_weights)
 
+    def post_load_weights(self):
+        """Post-process weights after loading.
+
+        Delegates to the language model's post_load_weights method to handle
+        kv_b_proj weight processing for MLA (w_kc and w_vc initialization).
+        This is required for dummy loading mode where weights are randomly initialized.
+        """
+        if hasattr(self.language_model, "post_load_weights"):
+            self.language_model.post_load_weights()
+
 
 EntryClass = [KimiK25ForConditionalGeneration]

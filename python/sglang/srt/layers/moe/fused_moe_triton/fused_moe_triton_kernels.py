@@ -713,7 +713,7 @@ def invoke_fused_moe_kernel(
         assert B_scale is not None and B_scale.ndim == 3
         assert B_zp is None or B_zp.ndim == 3
         assert bias is None
-        fused_moe_kernel_gptq_awq[grid](
+        ret = fused_moe_kernel_gptq_awq[grid](
             A,
             B,
             C,
@@ -775,7 +775,7 @@ def invoke_fused_moe_kernel(
         else:
             b_desc = None
 
-        fused_moe_kernel[grid](
+        ret = fused_moe_kernel[grid](
             A,
             a_desc,
             B,

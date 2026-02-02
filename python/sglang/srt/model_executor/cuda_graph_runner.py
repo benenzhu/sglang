@@ -721,6 +721,22 @@ class CudaGraphRunner:
             return logits_output_or_pp_proxy_tensors
 
         self.deepep_adapter.capture(is_extend_in_batch=False)
+        if os.environ.get("ZZD","") and torch.distributed.get_rank() == 1:
+            import debugpy
+            debugpy.listen(("0.0.0.0", 5678))
+            print(f"[Rank {torch.distributed.get_rank()}] Waiting for debugger attach on port 5678...", flush=True)
+            debugpy.wait_for_client()
+            print(f"[Rank {torch.distributed.get_rank()}] Debugger attached!")
+            debugpy.breakpoint()  # 可选：自动在这里停下来
+        if bs == 32:
+            with profile(
+                activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
+                record_shapes=True,
+                with_stack=True,
+            ) as prof:
+                run_once()
+            if torch.distributed.get_rank() == 0:
+                prof.export_chrome_trace(f"cuda_graph_warmup_bs{bs}_.json")
 
         for _ in range(2):
             self.device_module.synchronize()
