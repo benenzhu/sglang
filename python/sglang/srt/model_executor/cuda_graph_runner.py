@@ -728,7 +728,7 @@ class CudaGraphRunner:
             debugpy.wait_for_client()
             print(f"[Rank {torch.distributed.get_rank()}] Debugger attached!")
             debugpy.breakpoint()  # 可选：自动在这里停下来
-        if bs == 32:
+        if bs == 16:
             with profile(
                 activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
                 record_shapes=True,

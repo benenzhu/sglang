@@ -86,8 +86,71 @@ def write_zeros_to_output(
     c_mask = token_mask[:, None] & (offs_cn[None, :] < N)
     tl.store(c_ptrs, accumulator, mask=c_mask)
 
+def _sanitize_constexpr_value(value):
+    if value is None:
+        return "NONE"
+    if isinstance(value, bool):
+        return str(int(value))
+    if isinstance(value, int):
+        return str(value)
+    if isinstance(value, float):
+        if value.is_integer():
+            return str(int(value))
+        return str(value)
 
-@triton.jit
+    # for lists, tuples, sets - recursively join each
+    if isinstance(value, (list, tuple, set)):
+        items = sorted(value, key=str) if isinstance(value, set) else value
+        sanitized_items = [_sanitize_constexpr_value(item) for item in items]
+        joined = "_".join(sanitized_items)
+        return joined if joined else "NONE"
+
+    if isinstance(value, str):
+        cleaned_value = "".join(ch if ch.isalnum() else "_" for ch in value).strip("_")
+        return cleaned_value.upper() if cleaned_value else "NONE"
+
+    cleaned_value = "".join(ch if ch.isalnum() else "_" for ch in str(value)).strip("_")
+    return cleaned_value.upper() if cleaned_value else "NONE"
+
+
+def make_kernel_repr(base_name, config_keys):
+    def _repr(specialization):
+        constants = specialization.constants
+        name_parts = []
+
+        for key in config_keys:
+            value = constants.get(key, None)
+            symbol = _sanitize_constexpr_value(value)
+            name_parts.append(f"{key}_{symbol}")
+
+        if not name_parts:
+            return base_name
+
+        suffix = "__".join(name_parts)
+        return f"{base_name}_{suffix}"
+
+    return _repr
+
+fused_moe_kernel_gptq_awq_repr = make_kernel_repr(
+    "_fused_moe_kernel_gptq_awq",
+    [
+        "N",
+        "K",
+        "group_size",
+        "BLOCK_SIZE_M",
+        "BLOCK_SIZE_N",
+        "BLOCK_SIZE_K",
+        "GROUP_SIZE_M",
+        "tok_k",
+        "has_zp",
+        "use_int4_w4a16",
+        "even_Ks",
+        "MUL_ROUTED_WEIGHT"
+        "filter_expert",
+    ],
+)
+
+@triton.jit(repr=fused_moe_kernel_gptq_awq_repr)
 def fused_moe_kernel_gptq_awq(
     # Pointers to matrices
     a_ptr,
@@ -714,19 +777,19 @@ def invoke_fused_moe_kernel(
         assert B_zp is None or B_zp.ndim == 3
         assert bias is None
         ret = fused_moe_kernel_gptq_awq[grid](
-            A,
-            B,
-            C,
-            B_scale,
-            B_zp,
-            topk_weights,
-            sorted_token_ids,
-            expert_ids,
-            num_tokens_post_padded,
-            B.shape[1],
-            A.shape[1],
-            sorted_token_ids.shape[0],
-            topk_ids.numel(),
+            A, # 16, 7168
+            B, # 384, 512, 3584, int8
+            C, # 128, 512
+            B_scale, # 384, 512, 224
+            B_zp, # None
+            topk_weights, # [16,8]
+            sorted_token_ids, # [2048]
+            expert_ids, # [128]
+            num_tokens_post_padded, # [128]
+            B.shape[1], # 512
+            A.shape[1], # 7168
+            sorted_token_ids.shape[0], # 2048
+            topk_ids.numel(), # 128
             A.stride(0),
             A.stride(1),
             B.stride(0),
@@ -742,10 +805,10 @@ def invoke_fused_moe_kernel(
             B_zp.stride(1) if B_zp is not None else 0,
             group_size=block_shape[1],
             MUL_ROUTED_WEIGHT=mul_routed_weight,
-            top_k=top_k,
+            top_k=top_k, # 8 
             compute_type=compute_type,
             has_zp=B_zp is not None,
-            use_int4_w4a16=use_int4_w4a16,
+            use_int4_w4a16=use_int4_w4a16, # true
             use_int8_w8a16=use_int8_w8a16,
             even_Ks=even_Ks,
             filter_expert=filter_expert,

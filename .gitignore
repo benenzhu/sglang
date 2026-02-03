@@ -275,3 +275,37 @@ sgl-kernel/csrc/**/*_musa/
 
 # MUSA core dump files
 *.mudmp
+sgl-kernel/csrc/allreduce/deterministic_all_reduce_hip.hip
+sgl-kernel/csrc/allreduce/quick_all_reduce.hip
+sgl-kernel/csrc/allreduce/quick_all_reduce_hip.h
+sgl-kernel/csrc/elementwise/activation.hip
+sgl-kernel/csrc/elementwise/pos_enc.hip
+sgl-kernel/csrc/elementwise/topk.hip
+sgl-kernel/csrc/grammar/apply_token_bitmask_inplace_hip.hip
+sgl-kernel/csrc/kvcacheio/transfer.hip
+sgl-kernel/csrc/moe/moe_align_kernel.hip
+sgl-kernel/csrc/moe/moe_topk_sigmoid_kernels.hip
+sgl-kernel/csrc/moe/moe_topk_softmax_kernels.hip
+sgl-kernel/csrc/speculative/eagle_utils.hip
+sgl-kernel/include/hip/hip_act_and_mul_hip.cuh
+sgl-kernel/include/utils_hip.h
+python/sglang/srt/layers/moe/fused_moe_triton/configs/triton_3_1_0/E=256,N=256,device_name=AMD_Instinct_MI300X_VF,dtype=fp8_w8a8,block_shape=[128, 128].json
+python/sglang/srt/layers/moe/fused_moe_triton/configs/triton_3_1_0/E=8,N=14336,device_name=AMD_Instinct_MI300X_VF.json
+python/sglang/srt/layers/moe/fused_moe_triton/configs/triton_3_1_0/E=8,N=1792,device_name=AMD_Instinct_MI300X_VF.json
+python/sglang/srt/layers/moe/fused_moe_triton/configs/triton_3_1_0/E=8,N=3584,device_name=AMD_Instinct_MI300X_VF.json
+python/sglang/srt/layers/moe/fused_moe_triton/configs/triton_3_1_0/E=8,N=4096,device_name=AMD_Instinct_MI300X_VF,dtype=fp8_w8a8.json
+python/sglang/srt/layers/moe/fused_moe_triton/configs/triton_3_1_0/E=8,N=7168,device_name=AMD_Instinct_MI300X_VF.json
+python/sglang/srt/layers/moe/fused_moe_triton/configs/triton_3_1_0/E=8,N=8192,device_name=AMD_Instinct_MI300X_VF,dtype=fp8_w8a8.json
+python/sglang/srt/layers/quantization/configs/*device_name=AMD_Instinct_MI300X_VF*.json
+python/sglang/srt/layers/moe/fused_moe_triton/configs/triton_3_1_0/*AMD_Instinct_MI300X_VF*.json
+python/sglang/srt/layers/quantization/configs/N=24576,K=1536,device_name=AMD_Instinct_MI300X_VF,dtype=fp8_w8a8,block_shape=[128, 128].json
+python/sglang/srt/layers/quantization/configs/N=3072,K=1536,device_name=AMD_Instinct_MI300X_VF,dtype=fp8_w8a8,block_shape=[128, 128].json
+python/sglang/srt/layers/quantization/configs/N=32768,K=512,device_name=AMD_Instinct_MI300X_VF,dtype=fp8_w8a8,block_shape=[128, 128].json
+python/sglang/srt/layers/quantization/configs/N=4096,K=512,device_name=AMD_Instinct_MI300X_VF,dtype=fp8_w8a8,block_shape=[128, 128].json
+python/sglang/srt/layers/quantization/configs/N=4608,K=7168,device_name=AMD_Instinct_MI300X_VF,dtype=fp8_w8a8,block_shape=[128, 128].json
+python/sglang/srt/layers/quantization/configs/N=512,K=7168,device_name=AMD_Instinct_MI300X_VF,dtype=fp8_w8a8,block_shape=[128, 128].json
+python/sglang/srt/layers/quantization/configs/N=576,K=7168,device_name=AMD_Instinct_MI300X_VF,dtype=fp8_w8a8,block_shape=[128, 128].json
+python/sglang/srt/layers/quantization/configs/N=7168,K=16384,device_name=AMD_Instinct_MI300X_VF,dtype=fp8_w8a8,block_shape=[128, 128].json
+python/sglang/srt/layers/quantization/configs/N=7168,K=2048,device_name=AMD_Instinct_MI300X_VF,dtype=fp8_w8a8,block_shape=[128, 128].json
+python/sglang/srt/layers/quantization/configs/N=7168,K=2304,device_name=AMD_Instinct_MI300X_VF,dtype=fp8_w8a8,block_shape=[128, 128].json
+python/sglang/srt/layers/quantization/configs/N=7168,K=256,device_name=AMD_Instinct_MI300X_VF,dtype=fp8_w8a8,block_shape=[128, 128].json

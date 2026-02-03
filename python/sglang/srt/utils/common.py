@@ -1976,6 +1976,10 @@ def print_info_once(msg: str) -> None:
 
 
 def get_device_name(device_id: int = 0) -> str:
+    if is_hip() and is_gfx95_supported():
+        return "gfx950"
+        return "gfx950"
+
     if (hasattr(torch, "cuda") and torch.cuda.is_available()) or is_musa():
         return torch.cuda.get_device_name(device_id)
 

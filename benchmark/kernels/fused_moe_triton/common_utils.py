@@ -47,6 +47,7 @@ def get_model_config(
         assert len(block_shape) == 2
 
     architecture = config.architectures[0]
+    print(f"architecture: {architecture}")
 
     # Replace config with text_config for encoder-decoder models after getting block_shape and architecture
     if hasattr(config, "text_config"):
@@ -75,6 +76,7 @@ def get_model_config(
         "DeepseekV3ForCausalLM",
         "Glm4MoeForCausalLM",
         "MistralLarge3ForCausalLM",
+        "KimiK25ForConditionalGeneration"
     ]:
         E = (config.n_routed_experts // ep_size) + (
             0
@@ -122,6 +124,8 @@ def get_model_config(
         hidden_size = getattr(config, "moe_latent_size", None) or hidden_size
     else:
         # Default: Mixtral
+        print(config)
+        print(f"architecture: {architecture}")
         E = config.num_local_experts // ep_size
         topk = config.num_experts_per_tok
         intermediate_size = config.intermediate_size
