@@ -724,7 +724,7 @@ class CudaGraphRunner:
         if os.environ.get("ZZD","") and torch.distributed.get_rank() == 1:
             import debugpy
             debugpy.listen(("0.0.0.0", 5678))
-            print(f"[Rank {torch.distributed.get_rank()}] Waiting for debugger attach on port 5678...", flush=True)
+            print(f"\n\n\n[Rank {torch.distributed.get_rank()}] Waiting for debugger attach on port 5678...\n", flush=True)
             debugpy.wait_for_client()
             print(f"[Rank {torch.distributed.get_rank()}] Debugger attached!")
             debugpy.breakpoint()  # 可选：自动在这里停下来

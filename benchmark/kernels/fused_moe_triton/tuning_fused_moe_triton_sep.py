@@ -116,8 +116,9 @@ def load_topk_ids(topk_ids_dir, i: int):
     num_layers = 61
     dense_layers = 3
     moe_layers = num_layers - dense_layers
+    print("load file:", f"{topk_ids_dir}/topk_ids_layer{i % moe_layers + dense_layers}_idx9.pt")
     return torch.load(
-        f"{topk_ids_dir}/topk_ids_layer{i % moe_layers + dense_layers}_idx{i // moe_layers}.pt"
+        f"{topk_ids_dir}/topk_ids_layer{i % moe_layers + dense_layers}_idx9.pt"
     )
 
 
@@ -132,6 +133,7 @@ def benchmark_config(
     use_fp8_w8a8: bool,
     use_int8_w8a8: bool,
     use_int8_w8a16: bool,
+    use_int4_w4a16: bool,
     topk_ids_list,
     block_shape: List[int] = None,
     ep_size: int = 1,
@@ -163,6 +165,29 @@ def benchmark_config(
             ),
             dtype=torch.int8,
         )
+    elif use_int4_w4a16:
+        # INT4 weights are packed: 2 int4 values per int8 byte
+        # So the K dimension is halved in storage
+        w1 = torch.randint(
+            -128,
+            127,
+            (
+                num_experts,
+                shard_intermediate_size,
+                hidden_size // 2,  # packed: 2 int4 per byte
+            ),
+            dtype=torch.int8,
+        )
+        w2 = torch.randint(
+            -128,
+            127,
+            (
+                num_experts,
+                hidden_size,
+                shard_intermediate_size // 4,  # packed: 2 int4 per byte, and //2 for silu_and_mul
+            ),
+            dtype=torch.int8,
+        )
     else:
         w1 = torch.randn(
             num_experts, shard_intermediate_size, hidden_size, dtype=init_dtype
@@ -180,6 +205,18 @@ def benchmark_config(
             (num_experts, 2 * shard_intermediate_size), dtype=torch.float32
         )
         w2_scale = torch.randn((hidden_size, num_experts), dtype=torch.float32)
+    if use_int4_w4a16:
+        # INT4 uses group-wise quantization
+        group_size = block_shape[1] if block_shape else 128
+        # Scale shape: [num_experts, N, K // group_size]
+        k_groups_w1 = (hidden_size + group_size - 1) // group_size
+        k_groups_w2 = (shard_intermediate_size // 2 + group_size - 1) // group_size
+        w1_scale = torch.rand(
+            (num_experts, shard_intermediate_size, k_groups_w1), dtype=torch.float32
+        )
+        w2_scale = torch.rand(
+            (num_experts, hidden_size, k_groups_w2), dtype=torch.float32
+        )
     if use_fp8_w8a8 or use_int8_w8a8:
         if use_int8_w8a8 and block_shape is None:
             w1_scale = torch.randn(
@@ -294,9 +331,9 @@ def benchmark_config(
             config=config,
             compute_type=compute_type,
             use_fp8_w8a8=use_fp8_w8a8,
-            use_int8_w8a8=False,
-            use_int8_w8a16=False,
-            use_int4_w4a16=False,
+            use_int8_w8a8=use_int8_w8a8,
+            use_int8_w8a16=use_int8_w8a16,
+            use_int4_w4a16=use_int4_w4a16,
             per_channel_quant=False,
             block_shape=block_shape,
             b_use_tma=moe_use_tma,
@@ -320,9 +357,9 @@ def benchmark_config(
             config=config,
             compute_type=compute_type,
             use_fp8_w8a8=use_fp8_w8a8,
-            use_int8_w8a8=False,
-            use_int8_w8a16=False,
-            use_int4_w4a16=False,
+            use_int8_w8a8=use_int8_w8a8,
+            use_int8_w8a16=use_int8_w8a16,
+            use_int4_w4a16=use_int4_w4a16,
             per_channel_quant=False,
             block_shape=block_shape,
             a_use_tma=moe_use_tma,
@@ -424,6 +461,7 @@ class BenchmarkWorker:
         use_fp8_w8a8: bool,
         use_int8_w8a8: bool,
         use_int8_w8a16: bool,
+        use_int4_w4a16: bool,
         block_shape: List[int],
         cfg: Dict[str, int],
         topk_ids_dir: str,
@@ -443,6 +481,7 @@ class BenchmarkWorker:
                 use_fp8_w8a8,
                 use_int8_w8a8,
                 use_int8_w8a16,
+                use_int4_w4a16,
                 topk_ids_list,
                 block_shape,
                 ep_size=ep_size,
@@ -460,6 +499,7 @@ class BenchmarkWorker:
         use_fp8_w8a8: bool,
         use_int8_w8a8: bool,
         use_int8_w8a16: bool,
+        use_int4_w4a16: bool,
         block_shape: List[int],
         search_space: List[Dict[str, int]],
         topk_ids_dir: str,
@@ -483,6 +523,7 @@ class BenchmarkWorker:
                         use_fp8_w8a8,
                         use_int8_w8a8,
                         use_int8_w8a16,
+                        use_int4_w4a16,
                         topk_ids_list,
                         block_shape,
                         ep_size=ep_size,
@@ -527,6 +568,7 @@ class BenchmarkWorker:
         use_fp8_w8a8: bool,
         use_int8_w8a8: bool,
         use_int8_w8a16: bool,
+        use_int4_w4a16: bool,
         block_shape: List[int],
         cmp_config_files: List[str],
         topk_ids_dir: str,
@@ -562,6 +604,7 @@ class BenchmarkWorker:
                         use_fp8_w8a8,
                         use_int8_w8a8,
                         use_int8_w8a16,
+                        use_int4_w4a16,
                         topk_ids_list,
                         block_shape,
                         ep_size=ep_size,
@@ -582,12 +625,14 @@ def save_configs_sep(
     use_fp8_w8a8: bool,
     use_int8_w8a8: bool,
     use_int8_w8a16: bool,
+    use_int4_w4a16: bool,
     block_shape: List[int],
     down_moe: bool = False,
 ) -> None:
     dtype_str = get_config_dtype_str(
         dtype,
         use_int8_w8a16=use_int8_w8a16,
+        use_int4_w4a16=use_int4_w4a16,
         use_fp8_w8a8=use_fp8_w8a8,
         use_int8_w8a8=use_int8_w8a8,
     )
@@ -629,6 +674,11 @@ def main(args: argparse.Namespace):
     use_fp8_w8a8 = args.dtype == "fp8_w8a8"
     use_int8_w8a8 = args.dtype == "int8_w8a8"
     use_int8_w8a16 = args.dtype == "int8_w8a16"
+    use_int4_w4a16 = args.dtype == "int4_w4a16"
+
+    # INT4/INT8 W*A16 requires block_shape for group-wise quantization
+    if (use_int4_w4a16 or use_int8_w8a16) and block_shape is None:
+        block_shape = [0, 128]  # block_n=0 (unused), group_size=128
 
     topk_ids_dir = args.topk_ids_dir
     if args.batch_size is None:
@@ -649,6 +699,7 @@ def main(args: argparse.Namespace):
             use_fp8_w8a8,
             use_int8_w8a8,
             use_int8_w8a16,
+            use_int4_w4a16,
             block_shape,
             args.cmp_configs,
             topk_ids_dir,
@@ -670,6 +721,7 @@ def main(args: argparse.Namespace):
                 use_fp8_w8a8,
                 use_int8_w8a8,
                 use_int8_w8a16,
+                use_int4_w4a16,
                 block_shape,
                 search_space,
                 topk_ids_dir,
@@ -695,6 +747,7 @@ def main(args: argparse.Namespace):
                 use_fp8_w8a8,
                 use_int8_w8a8,
                 use_int8_w8a16,
+                use_int4_w4a16,
                 block_shape,
                 cfg,
                 topk_ids_dir,
@@ -738,7 +791,8 @@ def main(args: argparse.Namespace):
         use_fp8_w8a8,
         use_int8_w8a8,
         use_int8_w8a16,
-        False,
+        use_int4_w4a16,
+        False,  # per_channel_quant
         block_shape,
     )
     print(
@@ -759,6 +813,7 @@ def main(args: argparse.Namespace):
                 use_fp8_w8a8,
                 use_int8_w8a8,
                 use_int8_w8a16,
+                use_int4_w4a16,
                 block_shape,
                 search_space,
                 topk_ids_dir,
@@ -787,6 +842,7 @@ def main(args: argparse.Namespace):
         use_fp8_w8a8,
         use_int8_w8a8,
         use_int8_w8a16,
+        use_int4_w4a16,
         block_shape,
     )
 
@@ -801,6 +857,7 @@ def main(args: argparse.Namespace):
         use_fp8_w8a8,
         use_int8_w8a8,
         use_int8_w8a16,
+        use_int4_w4a16,
         block_shape,
         down_moe=True,
     )
@@ -818,7 +875,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--dtype",
         type=str,
-        choices=["auto", "fp8_w8a8", "int8_w8a16", "int8_w8a8"],
+        choices=["auto", "fp8_w8a8", "int8_w8a16", "int8_w8a8", "int4_w4a16"],
         default="auto",
     )
     parser.add_argument("--seed", type=int, default=0)

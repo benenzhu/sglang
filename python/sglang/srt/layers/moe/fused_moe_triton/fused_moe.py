@@ -208,7 +208,7 @@ def fused_experts(
         moe_runner_config.num_experts is None
         or moe_runner_config.num_experts != moe_runner_config.num_local_experts
     )
-    if moe_runner_config.inplace:
+    if moe_runner_config.inplace: ## 输出直接写回 hidden_states, 不用分配新内存了
         assert not moe_runner_config.no_combine, "no combine + inplace makes no sense"
         inplace_fused_experts(
             hidden_states,
@@ -291,36 +291,36 @@ def _down_moe_use_tma():
 
 
 def fused_experts_impl(
-    hidden_states: torch.Tensor,
-    w1: torch.Tensor,
-    w2: torch.Tensor,
-    topk_weights: torch.Tensor,
-    topk_ids: torch.Tensor,
-    b1: Optional[torch.Tensor] = None,
-    b2: Optional[torch.Tensor] = None,
-    inplace: bool = False,
-    activation: str = "silu",
-    is_gated: bool = True,
-    apply_router_weight_on_input: bool = False,
+    hidden_states: torch.Tensor, # [32,7168]
+    w1: torch.Tensor, # [384, 512, 3584] 原始形状 [384, 512, 7168]
+    w2: torch.Tensor, # [384, 7168, 128] 原始形状 [384, 7168, 256]
+    topk_weights: torch.Tensor, # [32, 8]
+    topk_ids: torch.Tensor, # [32, 8]
+    b1: Optional[torch.Tensor] = None, # None
+    b2: Optional[torch.Tensor] = None, # None
+    inplace: bool = False,  # True
+    activation: str = "silu", # "silu"
+    is_gated: bool = True, # True
+    apply_router_weight_on_input: bool = False, # False
     use_fp8_w8a8: bool = False,
     use_int8_w8a8: bool = False,
-    use_int8_w8a16: bool = False,
-    use_int4_w4a16: bool = False,
+    use_int8_w8a16: bool = False, 
+    use_int4_w4a16: bool = False, # True
     per_channel_quant: bool = False,
-    w1_scale: Optional[torch.Tensor] = None,
-    w2_scale: Optional[torch.Tensor] = None,
-    w1_zp: Optional[torch.Tensor] = None,
-    w2_zp: Optional[torch.Tensor] = None,
+    w1_scale: Optional[torch.Tensor] = None, # [.., .., 224 = ../16]
+    w2_scale: Optional[torch.Tensor] = None, # [.., .., 8 = 128/16]
+    w1_zp: Optional[torch.Tensor] = None, # Nonne
+    w2_zp: Optional[torch.Tensor] = None, #...
     a1_scale: Optional[torch.Tensor] = None,
     a2_scale: Optional[torch.Tensor] = None,
-    block_shape: Optional[List[int]] = None,
+    block_shape: Optional[List[int]] = None, # [0,32]
     no_combine: bool = False,
     routed_scaling_factor: Optional[float] = None,
     gemm1_alpha: Optional[float] = None,
     gemm1_limit: Optional[float] = None,
     filter_expert: bool = True,
 ):
-    padded_size = padding_size
+    padded_size = padding_size # 128
     if not (use_fp8_w8a8 or use_int8_w8a8) or block_shape is not None or _use_aiter:
         padded_size = 0
 
@@ -372,26 +372,26 @@ def fused_experts_impl(
     max_padded_tokens = (
         min(M * topk, E + 1) * (max_block_m - 1) if down_moe_use_tma else 0
     )
-    total_tokens = M * topk + max_padded_tokens
+    total_tokens = M * topk + max_padded_tokens # 32 * 8 + 0
     cache = torch.empty(
-        total_tokens * max(N, w2.shape[1]),
+        total_tokens * max(N, w2.shape[1]), # 32 * 8 * 7168
         device=hidden_states.device,
-        dtype=hidden_states.dtype,
+        dtype=hidden_states.dtype, # fp16
     )
-    intermediate_cache3 = cache[: M * topk * w2.shape[1]].view(
+    intermediate_cache3 = cache[: M * topk * w2.shape[1]].view( ## N == 512
         (M, topk, w2.shape[1]),
     )
 
     compute_type = tl.bfloat16 if hidden_states.dtype == torch.bfloat16 else tl.float16
 
-    if no_combine:
+    if no_combine: # False .... 啥时候才需要 no_combine???....
         assert not inplace
         out_hidden_states = torch.empty(
             (num_tokens, topk, w2.shape[1]),
             device=hidden_states.device,
             dtype=hidden_states.dtype,
         )
-    elif inplace:
+    elif inplace: # True
         out_hidden_states = hidden_states
     else:
         out_hidden_states = torch.empty_like(hidden_states)
@@ -428,25 +428,52 @@ def fused_experts_impl(
         total_tokens = tokens_in_chunk * topk + padded_tokens
         intermediate_cache1 = cache[: total_tokens * N].view(
             (total_tokens, N),
-        )
+        ) # [B * 8, 512]
         intermediate_cache2 = torch.empty(
             (total_tokens, N // 2),
             device=hidden_states.device,
             dtype=hidden_states.dtype,
-        )
+        ) # [B * 8, 256]
 
-        curr_topk_ids = topk_ids[begin_chunk_idx:end_chunk_idx]
-        curr_topk_weights = topk_weights[begin_chunk_idx:end_chunk_idx]
+        curr_topk_ids = topk_ids[begin_chunk_idx:end_chunk_idx] # [B, 8]
+        curr_topk_weights = topk_weights[begin_chunk_idx:end_chunk_idx] # [B, 8]
 
         sorted_token_ids, expert_ids, num_tokens_post_padded = moe_align_block_size(
             curr_topk_ids, config["BLOCK_SIZE_M"], E
-        )
-
+        ) # sorted_token_ids.shape[4096], expert_ids.shape[256], num_tokens_post_padded : [1] 的shape
+        
+        # Save data for kernel perf analysis when M == 8
+        cnt = int(os.environ.get("ZZCNT", "0"))
+        cnt += 1
+        os.environ["ZZCNT"] = str(cnt)
+        M = curr_hidden_states.shape[0]
+        if M == 8:
+            import os
+            save_dir = "/tmp/topk"
+            os.makedirs(save_dir, exist_ok=True)
+            torch.save({
+                "hidden_states": curr_hidden_states.cpu(),
+                "w1": w1.cpu(),
+                "w2": w2.cpu(),
+                "w1_scale": w1_scale.cpu() if w1_scale is not None else None,
+                "w2_scale": w2_scale.cpu() if w2_scale is not None else None,
+                "topk_ids": curr_topk_ids.cpu(),
+                "topk_weights": curr_topk_weights.cpu(),
+                "sorted_token_ids": sorted_token_ids.cpu(),
+                "expert_ids": expert_ids.cpu(),
+                "num_tokens_post_padded": num_tokens_post_padded.cpu(),
+                "config": config,
+                "M": M,
+                "E": E,
+                "N": N,
+            }, f"{save_dir}/moe_inputs_M{M}__{cnt}.pt")
+            print(f"[DEBUG] Saved MoE kernel inputs to {save_dir}/moe_inputs_M{M}__{cnt}.pt")
+         
         invoke_fused_moe_kernel(
             curr_hidden_states,
             w1,
             b1,
-            intermediate_cache1,
+            intermediate_cache1, # [B * 8, 512]
             a1_scale,
             w1_scale,
             w1_zp,

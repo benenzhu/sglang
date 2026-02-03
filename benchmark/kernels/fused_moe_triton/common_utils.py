@@ -86,11 +86,22 @@ def get_model_config(
                 "DeepseekV3ForCausalLM",
                 "Glm4MoeForCausalLM",
                 "MistralLarge3ForCausalLM",
+                "KimiK25ForConditionalGeneration"
             ]
             else 1
         )
         topk = config.num_experts_per_tok + (
-            0 if disable_shared_experts_fusion or topk_ids_dir is None else 1
+            0
+            if disable_shared_experts_fusion
+            or topk_ids_dir is None
+            or architecture
+            not in [
+                "DeepseekV3ForCausalLM",
+                "Glm4MoeForCausalLM",
+                "MistralLarge3ForCausalLM",
+                # "KimiK25ForConditionalGeneration"
+            ]
+            else 1
         )
         intermediate_size = config.moe_intermediate_size
     elif architecture == "Llama4ForConditionalGeneration":
@@ -226,12 +237,14 @@ def get_config_filename(
     use_fp8_w8a8: bool,
     use_int8_w8a8: bool,
     use_int8_w8a16: bool,
+    use_int4_w4a16: bool,
     per_channel_quant: bool,
     block_shape: List[int],
 ) -> str:
     dtype_str = get_config_dtype_str(
         dtype,
         use_int8_w8a16=use_int8_w8a16,
+        use_int4_w4a16=use_int4_w4a16,
         use_fp8_w8a8=use_fp8_w8a8,
         use_int8_w8a8=use_int8_w8a8,
     )
@@ -240,7 +253,7 @@ def get_config_filename(
     # is the intermediate size after silu_and_mul.
     filename = get_config_file_name(
         num_experts,
-        shard_intermediate_size // 2,
+        shard_intermediate_size // 2 if not use_int4_w4a16 else shard_intermediate_size // 4,
         dtype_str,
         block_shape,
         per_channel_quant,

@@ -636,6 +636,12 @@ class DeepseekV2MoE(nn.Module):
             # router_logits: (num_tokens, n_experts)
             router_logits = self.gate(hidden_states, gemm_output_zero_allocator)
             topk_output = self.topk(hidden_states, router_logits)
+            topk_ids_dir = "/tmp/topk"
+            if not hasattr(self, "save_idx"):
+                self.save_idx = 0
+            if self.save_idx <= 100:
+                torch.save(topk_output.topk_ids, f"{topk_ids_dir}/topk_ids_layer{self.layer_id}_idx{self.save_idx}.pt")
+            self.save_idx += 1
         else:
             shared_output = None
             topk_output = self.topk.empty_topk_output(hidden_states.device)
@@ -671,8 +677,8 @@ class DeepseekV2MoE(nn.Module):
             )
 
         final_hidden_states = self.experts(
-            hidden_states,
-            topk_output,
+            hidden_states, # [32, 7168]
+            topk_output, # [32, 8], [32, 8], [32, 384] ### router_logits.shape: [32, 384]
         )
         if (
             not _is_cuda

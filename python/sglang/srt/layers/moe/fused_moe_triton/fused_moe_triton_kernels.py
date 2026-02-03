@@ -127,6 +127,7 @@ def make_kernel_repr(base_name, config_keys):
             return base_name
 
         suffix = "__".join(name_parts)
+        print(f"call moe with {suffix=}", flush=True)
         return f"{base_name}_{suffix}"
 
     return _repr
@@ -136,16 +137,33 @@ fused_moe_kernel_gptq_awq_repr = make_kernel_repr(
     [
         "N",
         "K",
+        "EM",
+        "num_valid_tokens",
+        "stride_am",
+        "stride_ak",
+        "stride_be",
+        "stride_bk",
+        "stride_bn",
+        "stride_cm",
+        "stride_cn",
+        "stride_bse",
+        "stride_bsk",
+        "stride_bsn",
+        "stride_bze",
+        "stride_bzk",
+        "stride_bzn",
         "group_size",
         "BLOCK_SIZE_M",
         "BLOCK_SIZE_N",
         "BLOCK_SIZE_K",
         "GROUP_SIZE_M",
+        "MUL_ROUTED_WEIGHT"
         "tok_k",
+        "compute_type",
         "has_zp",
         "use_int4_w4a16",
+        "use_int8_w8a16",
         "even_Ks",
-        "MUL_ROUTED_WEIGHT"
         "filter_expert",
     ],
 )
@@ -837,7 +855,8 @@ def invoke_fused_moe_kernel(
             )
         else:
             b_desc = None
-
+        assert False, "tmp should not runto here.."
+        # print(f"call moe with {grid=}", flush=True)
         ret = fused_moe_kernel[grid](
             A,
             a_desc,

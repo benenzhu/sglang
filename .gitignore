@@ -309,3 +309,5 @@ python/sglang/srt/layers/quantization/configs/N=7168,K=16384,device_name=AMD_Ins
 python/sglang/srt/layers/quantization/configs/N=7168,K=2048,device_name=AMD_Instinct_MI300X_VF,dtype=fp8_w8a8,block_shape=[128, 128].json
 python/sglang/srt/layers/quantization/configs/N=7168,K=2304,device_name=AMD_Instinct_MI300X_VF,dtype=fp8_w8a8,block_shape=[128, 128].json
 python/sglang/srt/layers/quantization/configs/N=7168,K=256,device_name=AMD_Instinct_MI300X_VF,dtype=fp8_w8a8,block_shape=[128, 128].json
+.specstory/*
+cuda_graph_warmup*.json

@@ -44,6 +44,7 @@ def benchmark_config(
     use_fp8_w8a8: bool,
     use_int8_w8a8: bool,
     use_int8_w8a16: bool,
+    use_int4_w4a16: bool,
     per_channel_quant: bool,
     block_shape: List[int] = None,
     num_iters: int = 100,
@@ -71,6 +72,30 @@ def benchmark_config(
             ),
             dtype=torch.int8,
         )
+    elif use_int4_w4a16:
+        # INT4 weights are packed: 2 int4 values per int8 byte
+        # So the K dimension is halved in storage
+        # Use int8 range (-128, 127), which covers all packed int4 combinations
+        w1 = torch.randint(
+            -128,
+            127,
+            (
+                num_experts,
+                shard_intermediate_size,
+                hidden_size // 2,  # packed: 2 int4 per byte
+            ),
+            dtype=torch.int8,
+        )
+        w2 = torch.randint(
+            -128,
+            127,
+            (
+                num_experts,
+                hidden_size,
+                shard_intermediate_size // 4,  # packed: 2 int4 per byte, and //2 for silu_and_mul
+            ),
+            dtype=torch.int8,
+        )
     else:
         w1 = torch.randn(
             num_experts, shard_intermediate_size, hidden_size, dtype=init_dtype
@@ -82,6 +107,8 @@ def benchmark_config(
 
     w1_scale = None
     w2_scale = None
+    w1_zp = None
+    w2_zp = None
     a1_scale = None
     a2_scale = None
     if use_int8_w8a16:
@@ -89,6 +116,18 @@ def benchmark_config(
             (num_experts, 2 * shard_intermediate_size), dtype=torch.float32
         )
         w2_scale = torch.randn((hidden_size, num_experts), dtype=torch.float32)
+    if use_int4_w4a16:
+        # INT4 uses group-wise quantization
+        group_size = block_shape[1] if block_shape else 128
+        # Scale shape: [num_experts, N, K // group_size]
+        k_groups_w1 = (hidden_size + group_size - 1) // group_size
+        k_groups_w2 = (shard_intermediate_size // 2 + group_size - 1) // group_size
+        w1_scale = torch.rand(
+            (num_experts, shard_intermediate_size, k_groups_w1), dtype=torch.float32
+        )
+        w2_scale = torch.rand(
+            (num_experts, hidden_size, k_groups_w2), dtype=torch.float32
+        )
     if use_fp8_w8a8 or use_int8_w8a8:
         if use_int8_w8a8 and block_shape is None:
             w1_scale = torch.randn(
@@ -146,8 +185,11 @@ def benchmark_config(
                 use_fp8_w8a8=use_fp8_w8a8,
                 use_int8_w8a8=use_int8_w8a8,
                 use_int8_w8a16=use_int8_w8a16,
+                use_int4_w4a16=use_int4_w4a16,
                 w1_scale=w1_scale,
                 w2_scale=w2_scale,
+                w1_zp=w1_zp,
+                w2_zp=w2_zp,
                 a1_scale=a1_scale,
                 a2_scale=a2_scale,
                 per_channel_quant=per_channel_quant,
@@ -214,12 +256,16 @@ class BenchmarkWorker:
         use_fp8_w8a8: bool,
         use_int8_w8a8: bool,
         use_int8_w8a16: bool,
+        use_int4_w4a16: bool,
         per_channel_quant: bool,
         block_shape: List[int],
     ) -> Tuple[Dict[str, int], float]:
         torch.cuda.manual_seed_all(0)
         dtype_str = get_config_dtype_str(
-            dtype, use_int8_w8a16=use_int8_w8a16, use_fp8_w8a8=use_fp8_w8a8
+            dtype,
+            use_int8_w8a16=use_int8_w8a16,
+            use_int4_w4a16=use_int4_w4a16,
+            use_fp8_w8a8=use_fp8_w8a8,
         )
         # NOTE(woosuk): The current naming convention uses w2.shape[2], which
         # is the intermediate size after silu_and_mul.
@@ -258,6 +304,7 @@ class BenchmarkWorker:
                 use_fp8_w8a8,
                 use_int8_w8a8,
                 use_int8_w8a16,
+                use_int4_w4a16,
                 per_channel_quant,
                 block_shape,
             )
@@ -274,6 +321,7 @@ class BenchmarkWorker:
         use_fp8_w8a8: bool,
         use_int8_w8a8: bool,
         use_int8_w8a16: bool,
+        use_int4_w4a16: bool,
         per_channel_quant: bool,
         block_shape: List[int],
         search_space: List[Dict[str, int]],
@@ -282,6 +330,7 @@ class BenchmarkWorker:
         best_time = float("inf")
         with torch.cuda.device(self.device_id) if is_hip() else nullcontext():
             for config in tqdm(search_space):
+                # if True:
                 try:
                     kernel_time = benchmark_config(
                         config,
@@ -294,6 +343,7 @@ class BenchmarkWorker:
                         use_fp8_w8a8,
                         use_int8_w8a8,
                         use_int8_w8a16,
+                        use_int4_w4a16,
                         per_channel_quant,
                         block_shape,
                         num_iters=10,
@@ -307,7 +357,7 @@ class BenchmarkWorker:
                     best_config = config
         now = datetime.now()
         print(f"{now.ctime()}] Completed tuning for batch_size={num_tokens}")
-        assert best_config is not None
+        assert best_config is not None, best_config
         return best_config
 
 
@@ -328,7 +378,13 @@ def main(args: argparse.Namespace):
     use_fp8_w8a8 = args.dtype == "fp8_w8a8"
     use_int8_w8a8 = args.dtype == "int8_w8a8"
     use_int8_w8a16 = args.dtype == "int8_w8a16"
+    use_int4_w4a16 = args.dtype == "int4_w4a16"
     per_channel_quant = args.per_channel_quant
+
+    # INT4/INT8 W*A16 requires block_shape for group-wise quantization
+    # block_shape = [block_n, group_size], where group_size is typically 128
+    if (use_int4_w4a16 or use_int8_w8a16) and block_shape is None:
+        block_shape = [0, 32]  # block_n=0 (unused), group_size=128
 
     if args.batch_size is None:
         batch_sizes = get_default_batch_sizes()
@@ -357,7 +413,7 @@ def main(args: argparse.Namespace):
             search_space = [
                 config
                 for config in search_space
-                if block_k % config["BLOCK_SIZE_K"] == 0
+                if (block_k * 2) % config["BLOCK_SIZE_K"] == 0
             ]
 
         filename = get_config_filename(
@@ -369,6 +425,7 @@ def main(args: argparse.Namespace):
             use_fp8_w8a8,
             use_int8_w8a8,
             use_int8_w8a16,
+            use_int4_w4a16,
             per_channel_quant,
             block_shape,
         )
@@ -390,6 +447,7 @@ def main(args: argparse.Namespace):
                     use_fp8_w8a8,
                     use_int8_w8a8,
                     use_int8_w8a16,
+                    use_int4_w4a16,
                     per_channel_quant,
                     block_shape,
                     search_space,
@@ -420,6 +478,7 @@ def main(args: argparse.Namespace):
                     use_fp8_w8a8,
                     use_int8_w8a8,
                     use_int8_w8a16,
+                    use_int4_w4a16,
                     per_channel_quant,
                     block_shape,
                 )
@@ -442,7 +501,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--dtype",
         type=str,
-        choices=["auto", "fp8_w8a8", "int8_w8a16", "int8_w8a8"],
+        choices=["auto", "fp8_w8a8", "int8_w8a16", "int8_w8a8", "int4_w4a16"],
         default="auto",
     )
     parser.add_argument(

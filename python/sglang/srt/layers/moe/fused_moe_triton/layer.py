@@ -971,12 +971,12 @@ class FusedMoE(torch.nn.Module):
             return self.forward_impl(hidden_states, topk_output)
 
     def forward_impl(self, hidden_states: torch.Tensor, topk_output: TopKOutput):
-        origin_hidden_states_dim = hidden_states.shape[-1]
+        origin_hidden_states_dim = hidden_states.shape[-1] # 7168
         assert self.quant_method is not None
 
         dispatch_output = self.dispatcher.dispatch(
             hidden_states=hidden_states, topk_output=topk_output
-        )
+        ) # [0].shape: [32, 7168] # TODO 看看做了啥？？？？？？？？？？。。。。。。。。。。。。。。
         if _use_aiter and self.dispatcher.local_expert_mapping is not None:
             self.expert_mask_gpu = (
                 (
