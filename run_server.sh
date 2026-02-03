@@ -3,25 +3,28 @@ export HF_HOME=/B/huggingface
 export SGLANG_TORCH_PROFILER_DIR=/root
 
 
-# SGLANG_USE_AITER=1 SGLANG_ROCM_FUSED_DECODE_MLA=0 \
-# python3 -m sglang.launch_server \
-# --model-path moonshotai/Kimi-K2.5 \
-# --tp 8 \
-# --trust-remote-code \
-# --decode-attention-backend triton \
-# --prefill-attention-backend aiter \
-# --reasoning-parser kimi_k2 \
-# --tool-call-parser kimi_k2 \
+SGLANG_USE_AITER=1 SGLANG_ROCM_FUSED_DECODE_MLA=0 \
+python3 -m sglang.launch_server \
+--model-path moonshotai/Kimi-K2.5 \
+--tp 8 \
+--trust-remote-code \
+--decode-attention-backend triton \
+--prefill-attention-backend aiter \
+--reasoning-parser kimi_k2 \
+--tool-call-parser kimi_k2 \
+--disable-cuda-graph \
 # --cuda-graph-max-bs=32 \
-# --host 0.0.0.0 --port 30000 \
-# --load-format dummy 2>&1 |tee run_server.log
+--host 0.0.0.0 --port 30000 \
+2>&1 |tee run_server.log
+
+--load-format dummy 
 
 
 
-python benchmark/kernels/fused_moe_triton/tuning_fused_moe_triton.py \
-    --model moonshotai/Kimi-K2.5 \
-    --tp-size 8 \
-    --tune
+# python benchmark/kernels/fused_moe_triton/tuning_fused_moe_triton.py \
+#     --model moonshotai/Kimi-K2.5 \
+#     --tp-size 8 \
+#     --tune
 
 
 # export HF_HOME=/B/huggingface

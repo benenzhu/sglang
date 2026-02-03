@@ -4,6 +4,7 @@
 """Fused MoE kernel."""
 
 from __future__ import annotations
+import os
 
 import functools
 import os
@@ -443,31 +444,33 @@ def fused_experts_impl(
         ) # sorted_token_ids.shape[4096], expert_ids.shape[256], num_tokens_post_padded : [1] 的shape
         
         # Save data for kernel perf analysis when M == 8
+        import os
         cnt = int(os.environ.get("ZZCNT", "0"))
         cnt += 1
         os.environ["ZZCNT"] = str(cnt)
         M = curr_hidden_states.shape[0]
-        if M == 8:
-            import os
-            save_dir = "/tmp/topk"
-            os.makedirs(save_dir, exist_ok=True)
-            torch.save({
-                "hidden_states": curr_hidden_states.cpu(),
-                "w1": w1.cpu(),
-                "w2": w2.cpu(),
-                "w1_scale": w1_scale.cpu() if w1_scale is not None else None,
-                "w2_scale": w2_scale.cpu() if w2_scale is not None else None,
-                "topk_ids": curr_topk_ids.cpu(),
-                "topk_weights": curr_topk_weights.cpu(),
-                "sorted_token_ids": sorted_token_ids.cpu(),
-                "expert_ids": expert_ids.cpu(),
-                "num_tokens_post_padded": num_tokens_post_padded.cpu(),
-                "config": config,
-                "M": M,
-                "E": E,
-                "N": N,
-            }, f"{save_dir}/moe_inputs_M{M}__{cnt}.pt")
-            print(f"[DEBUG] Saved MoE kernel inputs to {save_dir}/moe_inputs_M{M}__{cnt}.pt")
+        if M == 32:
+            if torch.distributed.get_rank() == 0:
+                import os
+                save_dir = "/tmp/topk"
+                os.makedirs(save_dir, exist_ok=True)
+                torch.save({
+                    "hidden_states": curr_hidden_states.cpu(),
+                    "w1": w1.cpu(),
+                    "w2": w2.cpu(),
+                    "w1_scale": w1_scale.cpu() if w1_scale is not None else None,
+                    "w2_scale": w2_scale.cpu() if w2_scale is not None else None,
+                    "topk_ids": curr_topk_ids.cpu(),
+                    "topk_weights": curr_topk_weights.cpu(),
+                    "sorted_token_ids": sorted_token_ids.cpu(),
+                    "expert_ids": expert_ids.cpu(),
+                    "num_tokens_post_padded": num_tokens_post_padded.cpu(),
+                    "config": config,
+                    "M": M,
+                    "E": E,
+                    "N": N,
+                }, f"{save_dir}/moe_inputs_M{M}__{cnt}.pt")
+                print(f"[DEBUG] Saved MoE kernel inputs to {save_dir}/moe_inputs_M{M}__{cnt}.pt")
          
         invoke_fused_moe_kernel(
             curr_hidden_states,

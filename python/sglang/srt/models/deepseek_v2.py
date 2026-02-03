@@ -639,8 +639,8 @@ class DeepseekV2MoE(nn.Module):
             topk_ids_dir = "/tmp/topk"
             if not hasattr(self, "save_idx"):
                 self.save_idx = 0
-            if self.save_idx <= 100:
-                torch.save(topk_output.topk_ids, f"{topk_ids_dir}/topk_ids_layer{self.layer_id}_idx{self.save_idx}.pt")
+            # if self.save_idx <= 100:
+            #     torch.save(topk_output.topk_ids, f"{topk_ids_dir}/topk_ids_layer{self.layer_id}_idx{self.save_idx}.pt")
             self.save_idx += 1
         else:
             shared_output = None
