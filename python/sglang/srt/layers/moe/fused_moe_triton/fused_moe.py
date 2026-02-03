@@ -457,9 +457,9 @@ def fused_experts_impl(
                 torch.save({
                     "hidden_states": curr_hidden_states.cpu(),
                     "w1": w1.cpu(),
-                    "w2": w2.cpu(),
+                    # "w2": w2.cpu(),
                     "w1_scale": w1_scale.cpu() if w1_scale is not None else None,
-                    "w2_scale": w2_scale.cpu() if w2_scale is not None else None,
+                    # "w2_scale": w2_scale.cpu() if w2_scale is not None else None,
                     "topk_ids": curr_topk_ids.cpu(),
                     "topk_weights": curr_topk_weights.cpu(),
                     "sorted_token_ids": sorted_token_ids.cpu(),

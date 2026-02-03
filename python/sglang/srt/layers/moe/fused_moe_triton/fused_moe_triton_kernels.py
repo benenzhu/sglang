@@ -127,7 +127,7 @@ def make_kernel_repr(base_name, config_keys):
             return base_name
 
         suffix = "__".join(name_parts)
-        print(f"call moe with {suffix=}", flush=True)
+        # print(f"call moe with {suffix=}", flush=True)
         return f"{base_name}_{suffix}"
 
     return _repr

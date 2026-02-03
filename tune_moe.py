@@ -19,6 +19,7 @@ from tqdm.auto import tqdm
 import torch
 import triton
 import triton.language as tl
+from torch.profiler import ProfilerActivity, profile
 
 # Add sglang to path
 # sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "python"))
@@ -39,8 +40,11 @@ def generate_moe_configs() -> List[Dict]:
     block_sizes_n = [32, 64, 128, 256]
     block_sizes_k = [32, 64, 128]
     group_sizes_m = [1, 4, 8]
-    num_warps_list = [4, 8]
+    num_warps_list = [1, 2, 4, 8]
     num_stages_list = [2, 3, 4]
+    waves_per_eu_list = [1, 2, 4, 8]
+    matrix_instr_nonkdim_list = [16]
+
 
     for (
         block_m,
@@ -49,6 +53,8 @@ def generate_moe_configs() -> List[Dict]:
         group_m,
         num_warps,
         num_stages,
+        waves_per_eu,
+        matrix_instr_nonkdim,
     ) in itertools.product(
         block_sizes_m,
         block_sizes_n,
@@ -56,6 +62,8 @@ def generate_moe_configs() -> List[Dict]:
         group_sizes_m,
         num_warps_list,
         num_stages_list,
+        waves_per_eu_list,
+        matrix_instr_nonkdim_list,
     ):
         config = {
             "BLOCK_SIZE_M": block_m,
@@ -64,16 +72,68 @@ def generate_moe_configs() -> List[Dict]:
             "GROUP_SIZE_M": group_m,
             "num_warps": num_warps,
             "num_stages": num_stages,
+            "waves_per_eu": waves_per_eu,
+            "matrix_instr_nonkdim": matrix_instr_nonkdim,
         }
         configs.append(config)
 
     return configs
 
 
-def do_bench(fn, warmup=25, rep=100, return_mode="median"):
-    """Benchmark function with cache clearing."""
-    from triton.testing import do_bench as triton_do_bench
-    return triton_do_bench(fn, warmup=warmup, rep=rep, return_mode=return_mode)
+def do_bench(fn, warmup=25, rep=100, grad_to_none=None, quantiles=None, return_mode="median"):
+    """
+    Benchmark with large cache to reduce Triton overhead.
+    Adapted from triton.testing.do_bench with larger cache size.
+    """
+    assert return_mode in ["min", "max", "mean", "median", "all"]
+    from triton.testing import runtime
+    di = runtime.driver.active.get_device_interface()
+
+    fn()
+    di.synchronize()
+
+    # Use larger cache (16 * 256 MB) to reduce overhead
+    cache_size = 16 * 256 * 1024 * 1024
+    cache = torch.empty(int(cache_size // 4), dtype=torch.int, device='cuda')
+
+    # Estimate the runtime of the function
+    start_event = di.Event(enable_timing=True)
+    end_event = di.Event(enable_timing=True)
+    start_event.record()
+    for _ in range(5):
+        runtime.driver.active.clear_cache(cache)
+        fn()
+    end_event.record()
+    di.synchronize()
+    estimate_ms = start_event.elapsed_time(end_event) / 5
+
+    # Compute number of warmup and repeat
+    n_warmup = max(1, int(warmup / estimate_ms))
+    n_repeat = max(1, int(rep / estimate_ms))
+    start_event = [di.Event(enable_timing=True) for i in range(n_repeat)]
+    end_event = [di.Event(enable_timing=True) for i in range(n_repeat)]
+    
+    # Warm-up
+    for _ in range(n_warmup):
+        fn()
+    
+    # Benchmark
+    for i in range(n_repeat):
+        if grad_to_none is not None:
+            for x in grad_to_none:
+                x.grad = None
+        # Clear L2 cache before each run
+        runtime.driver.active.clear_cache(cache)
+        runtime.driver.active.clear_cache(cache)
+        start_event[i].record()
+        fn()
+        end_event[i].record()
+    
+    di.synchronize()
+    times = [s.elapsed_time(e) for s, e in zip(start_event, end_event)]
+    
+    from triton.testing import _summarize_statistics
+    return _summarize_statistics(times, quantiles, return_mode)
 
 
 def load_moe_inputs(input_path: str) -> Dict:
@@ -105,9 +165,9 @@ def benchmark_moe_config(
     
     hidden_states = data["hidden_states"]
     w1 = data["w1"]
-    w2 = data["w2"]
+    # w2 = data["w2"]
     w1_scale = data["w1_scale"]
-    w2_scale = data["w2_scale"]
+    # w2_scale = data["w2_scale"]
     topk_ids = data["topk_ids"]
     topk_weights = data["topk_weights"]
     
@@ -123,8 +183,10 @@ def benchmark_moe_config(
         num_groups = w1_scale.shape[2]
         group_size = K_original // num_groups
         block_shape = [0, group_size]
+
     else:
         block_shape = None
+    assert block_shape == [0, 32], block_shape
     
     # Re-run moe_align_block_size with new BLOCK_SIZE_M
     sorted_token_ids, expert_ids, num_tokens_post_padded = moe_align_block_size(
@@ -174,7 +236,7 @@ def benchmark_moe_config(
     torch.cuda.synchronize()
     
     # Benchmark
-    elapsed_ms = do_bench(run_kernel, warmup=10, rep=num_iters, return_mode="median")
+    elapsed_ms = do_bench(run_kernel, warmup=100, rep=num_iters, return_mode="median")
     elapsed_us = elapsed_ms * 1000
     
     return elapsed_us
@@ -195,16 +257,29 @@ def tune_moe_kernel(
     print(f"\nTuning MoE kernel: M={M}, E={E}, N={N}")
     print(f"Total configs to try: {len(configs)}")
     
+
+
+    with profile(
+        activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
+        record_shapes=False,
+        with_stack=False,
+    ) as prof:
+        elapsed_us = benchmark_moe_config(data, data["config"], True, num_iters=100)
+        print(f"defualt_config time: {elapsed_us:.2f} us")
+        default_config = {'BLOCK_SIZE_M': 16, 'BLOCK_SIZE_N': 64, 'BLOCK_SIZE_K': 128, 'GROUP_SIZE_M': 1, 'num_warps': 1, 'num_stages': 3, 'waves_per_eu': 1, 'matrix_instr_nonkdim': 16}
+        elapsed_us = benchmark_moe_config(data, default_config, True, num_iters=100)
+        print(f"Best config time: {elapsed_us:.2f} us")
+    prof.export_chrome_trace(f"tune.json")
     for i, config in enumerate(tqdm(configs, desc="Tuning")):
         try:
             elapsed_us = benchmark_moe_config(
-                data, config, use_int4_w4a16=use_int4_w4a16, num_iters=50
+                data, config, use_int4_w4a16=use_int4_w4a16, num_iters=100
             )
             
-            if elapsed_us < best_time:
+            if elapsed_us < best_time * 1.1:
                 # Re-verify with more iterations
                 elapsed_us2 = benchmark_moe_config(
-                    data, config, use_int4_w4a16=use_int4_w4a16, num_iters=200
+                    data, config, use_int4_w4a16=use_int4_w4a16, num_iters=1000
                 )
                 
                 if elapsed_us2 < best_time:

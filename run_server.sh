@@ -13,11 +13,12 @@ python3 -m sglang.launch_server \
 --reasoning-parser kimi_k2 \
 --tool-call-parser kimi_k2 \
 --disable-cuda-graph \
-# --cuda-graph-max-bs=32 \
+--load-format dummy \
 --host 0.0.0.0 --port 30000 \
 2>&1 |tee run_server.log
 
---load-format dummy 
+# --cuda-graph-max-bs=32 \
+
 
 
 
