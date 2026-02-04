@@ -1,0 +1,24 @@
+{
+	"files": [
+		{
+			"path": "python/sglang/srt/layers/moe/fused_moe_triton/fused_moe_triton_kernels.py",
+			"bookmarks": [
+				{
+					"line": 796,
+					"column": 2,
+					"label": ""
+				}
+			]
+		},
+		{
+			"path": "python/sglang/srt/layers/moe/fused_moe_triton/fused_moe_triton_config.py",
+			"bookmarks": [
+				{
+					"line": 94,
+					"column": 76,
+					"label": ""
+				}
+			]
+		}
+	]
+}
